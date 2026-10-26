@@ -10,6 +10,7 @@ import { UserInbox } from './user-inbox.mjs';
 import { TaskDispatcher } from './task-dispatcher.mjs';
 import { modelKey, newId, withEffort } from './store.mjs';
 import { CONVERGE_MARK, handoverRequested, handoverSummary, hopLimit, renderHandover } from './relay-guard.mjs';
+import { appendNote, notesEnabled, renderNote } from './group-note.mjs';
 
 /** @typedef {import('./miniapp-api.js').MiniAppAgentClient} MiniAppAgentClient */
 /** @typedef {import('./miniapp-api.js').MiniAppAgentRunEvent} MiniAppAgentRunEvent */
@@ -323,7 +324,7 @@ export class Engine {
    * @param {{ reason: string, max: number }} info
    * @param {{ botId: string, name: string, text: string, ts: number } | undefined} last
    * @param {{ sourceMessageId?: string, sourceMessageIds?: string[], taskId?: string, signal?: AbortSignal }} [options]
-   * @returns {Promise<{ ok: boolean, reason: string }>}
+   * @returns {Promise<{ ok: boolean, reason: string, text: string }>}
    */
   async convergeGroup(group, chatId, info, last, options = {}) {
     const notice = await this.store.appendMessage(chatId, {
@@ -338,7 +339,7 @@ export class Engine {
       type: 'group.hopLimit', chatId, groupId: group.id, reason: info.reason, max: info.max, hops: info.max,
     });
     const bot = last?.botId ? this.store.getBot(last.botId) : undefined;
-    if (!bot) return { ok: false, reason: 'no_speaker' };
+    if (!bot) return { ok: false, reason: 'no_speaker', text: '' };
     const result = await this.runBotTurn({
       bot,
       chatId,
@@ -353,9 +354,31 @@ export class Engine {
     });
     if (result.status !== 'done') {
       this.logger.warn('minimax_bot.relay_converge_failed', { code: errorCode(result) || 'unknown' });
-      return { ok: false, reason: 'turn_failed' };
+      return { ok: false, reason: 'turn_failed', text: '' };
     }
-    return { ok: true, reason: 'converged' };
+    return { ok: true, reason: 'converged', text: result.text ?? '' };
+  }
+
+  /**
+   * Write what the round said into the group's note.
+   *
+   * The note lives in the group record, so it survives a reset of the group's chat, and every
+   * Bot of the group gets it in its standing brief. Nothing here spends a turn: the text is the
+   * closing part of the replies the group already produced. A group that keeps no note is left
+   * alone, and so is a round that said nothing.
+   *
+   * @param {any} group
+   * @param {{ speaker: string, text: string }[]} round
+   */
+  async recordGroupNote(group, round) {
+    if (!round.length) return;
+    const current = this.store.getGroup(group.id);
+    if (!current || !notesEnabled(current)) return;
+    const entries = appendNote(current.noteEntries, round);
+    if (!entries.length) return;
+    current.noteEntries = entries;
+    await this.store.save();
+    this.broadcast({ type: 'state.changed' });
   }
 
   /** The Bot's standing context, written in the user's language so replies default to it. */
@@ -366,6 +389,9 @@ export class Engine {
     // F7 · the group has the relay guardrails on: the prompt gets the one-owner rule. With the
     // guardrails off this adds nothing, so the prompt stays byte-identical.
     const relayGuard = group ? this.relayGuardActive(group) : false;
+    // The group's note: what its Bots said at the end of the earlier rounds. It is empty unless
+    // the group keeps one, so the brief of a group without notes stays byte-identical.
+    const note = group ? renderNote(group) : '';
     const lines = [
       '<minimax-bot-context>',
       t('brief.intro', { name: bot.name, id: bot.id }),
@@ -388,6 +414,9 @@ export class Engine {
             ...(relayGuard ? [t('brief.groupOneOwner')] : []),
           ].join(t('brief.sentenceJoin'))
         : t('brief.private'),
+      // The note joins the brief only when the group has one. It is a block of its own, so it
+      // does not disturb the sentence the group line is made of.
+      ...(note ? ['', note] : []),
       '',
       t('brief.hTeam'),
       ...botLines,
@@ -1174,6 +1203,8 @@ export class Engine {
     let hops = 0;
     /** The conclusion of the last hop, handed over to the next one. */
     let lastConclusion;
+    /** What the Bots said in this round, for the group's note. */
+    const noteRound = [];
     /** Set when the chain stopped because of the hop limit. */
     let converged;
     try {
@@ -1217,7 +1248,10 @@ export class Engine {
         }
         // Waiting on the user (or stopped): the hand-off resumes from answerQuestion once they reply.
         if (result.status !== 'done' || result.pendingQuestion) break;
-        if (result.text) lastConclusion = { botId: bot.id, name: bot.name, text: result.text, ts: Date.now() };
+        if (result.text) {
+          lastConclusion = { botId: bot.id, name: bot.name, text: result.text, ts: Date.now() };
+          noteRound.push({ speaker: bot.name, text: result.text });
+        }
         const next = this.mentionsIn(result.text, fresh, bot.id);
         // The limit is reached and the reply calls somebody: that Bot is not called, the chain
         // converges. This is the whole point of the limit — a chain that never ends.
@@ -1234,10 +1268,15 @@ export class Engine {
       }
       if (converged) {
         // The chain stops here: the group is told why, and the Bot that just spoke wraps up.
-        await this.convergeGroup(group, chatId, converged, lastConclusion, {
+        const wrap = await this.convergeGroup(group, chatId, converged, lastConclusion, {
           sourceMessageId, sourceMessageIds, signal: options.signal, taskId: options.taskId,
         });
+        // The wrap-up is the conclusion of the round, so it belongs in the note.
+        if (wrap.text && lastConclusion) noteRound.push({ speaker: lastConclusion.name, text: wrap.text });
       }
+      // The group's note: what this round said. It is written from text the group already
+      // produced, so it costs no turn, and a group that keeps no note is left alone.
+      await this.recordGroupNote(group, noteRound);
       if (paused) {
         const note = await this.store.appendMessage(chatId, { role: 'system', key: 'notice.noProgress', text: t('notice.noProgress') });
         this.broadcast({ type: 'message.upsert', chatId, message: note });
