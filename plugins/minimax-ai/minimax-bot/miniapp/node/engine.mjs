@@ -9,7 +9,7 @@ import { selectMemoryContext } from './memory-context.mjs';
 import { UserInbox } from './user-inbox.mjs';
 import { TaskDispatcher } from './task-dispatcher.mjs';
 import { modelKey, newId, withEffort } from './store.mjs';
-import { CONVERGE_MARK, handoverRequested, handoverSummary, hopLimit, renderHandover } from './relay-guard.mjs';
+import { CONVERGE_MARK, CONTEXT_BLOCK_END, CONTEXT_BLOCK_MARK, handoverRequested, handoverSummary, hopLimit, renderHandover } from './relay-guard.mjs';
 import { appendNote, notesEnabled, renderNote } from './group-note.mjs';
 
 /** @typedef {import('./miniapp-api.js').MiniAppAgentClient} MiniAppAgentClient */
@@ -393,7 +393,7 @@ export class Engine {
     // the group keeps one, so the brief of a group without notes stays byte-identical.
     const note = group ? renderNote(group) : '';
     const lines = [
-      '<minimax-bot-context>',
+      CONTEXT_BLOCK_MARK,
       t('brief.intro', { name: bot.name, id: bot.id }),
       bot.role ? t('brief.role', { role: bot.role }) : '',
       bot.isMain ? t('brief.mainPower') : '',
@@ -442,7 +442,7 @@ export class Engine {
       '',
       t('brief.hReply'),
       t('brief.reply'),
-      '</minimax-bot-context>',
+      CONTEXT_BLOCK_END,
     ];
     return lines.filter((line, index, all) => !(line === '' && all[index - 1] === '')).join('\n');
   }

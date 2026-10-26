@@ -37,7 +37,14 @@ Copy this directory, including the hidden `.minimax-plugin/` directory, into the
 - It is prompt text: the note is written from the replies the round already produced, so it costs no extra Agent turn, no extra tool call and no memory write.
 - The note is a record, not an agreement. It says what the Bots said at the end of earlier rounds, and every Bot of the group is told exactly that in the prompt.
 - The note is off unless you switch it on in the group settings, and a group without a note gets exactly the prompt it got before. Only you can set it: a Bot cannot switch it on, and the record itself is written by the plugin — a Bot cannot write into it.
-- The note holds the most recent rounds and stays within a small size limit. The group settings show what was recorded, and you can clear it there.
+- The note holds the most recent rounds and stays within a small size limit. The group settings show what was recorded, and you can clear it there. Switching the note off stops the recording and stops handing the record to the Bots, but what was already recorded stays until you clear it.
+
+## 0.7.11 The group note, cleaned up
+
+- Switching the note off no longer hides what was recorded. The group settings keep showing the record and its **Clear** button while the record exists, and say that the switch is off. The record itself is kept until you clear it, so switching the note back on hands the same record to the Bots again.
+- The panel shows the same list the Bots read: the cleaned and bounded entries, not whatever the state file happens to hold.
+- The protocol marks are now matched case-insensitively, and the marks of the standing-context block join the list of marks a reply may not forge. A reply that ends with such a tag can no longer close the context block early.
+- A recorded line is cut on a word boundary, so it no longer starts in the middle of a word.
 
 ## 0.7.9 Optional relay guardrails for groups
 

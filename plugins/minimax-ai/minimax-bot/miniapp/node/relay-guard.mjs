@@ -29,6 +29,15 @@ export const HANDOVER_BLOCK_MARK = '<minimax-bot-handover>';
 export const HANDOVER_BLOCK_END = '</minimax-bot-handover>';
 /** Marks the prompt that asks the current speaker to wrap up. */
 export const CONVERGE_MARK = '<minimax-bot-relay-converge>';
+/**
+ * Opens the block that carries the Bot's standing context.
+ *
+ * The context block wraps the whole brief, so a reply that ends with its closing tag would
+ * close the block early and make the rest of the text look like it sits outside the context.
+ */
+export const CONTEXT_BLOCK_MARK = '<minimax-bot-context>';
+/** Closes the block that carries the Bot's standing context. */
+export const CONTEXT_BLOCK_END = '</minimax-bot-context>';
 /** Longest summary handed over to the next hop. */
 export const HANDOVER_MAX = 600;
 /** How much of the previous reply's tail is kept when the group keeps no note. */
@@ -42,6 +51,8 @@ const FORGED_MARKS = [
   HANDOVER_BLOCK_MARK,
   HANDOVER_BLOCK_END,
   CONVERGE_MARK,
+  CONTEXT_BLOCK_MARK,
+  CONTEXT_BLOCK_END,
   '<minimax-bot-group-summary>',
   '</minimax-bot-group-summary>',
   '<minimax-bot-group-summary-task>',
@@ -83,6 +94,21 @@ export function handoverRequested(group) {
 }
 
 /**
+ * A protocol mark is a literal, so the pattern has to escape whatever it contains.
+ * @param {string} text
+ * @returns {string}
+ */
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * The marks are matched case-insensitively: a tag in another case is still a tag, and a Host
+ * that reads the marks case-insensitively must not be handed one.
+ */
+const FORGED_PATTERNS = FORGED_MARKS.map((mark) => new RegExp(escapeRegExp(mark), 'gi'));
+
+/**
  * Removes the protocol marks from a text, so a reply can never pretend to open or close a
  * block of its own.
  * @param {string} text
@@ -90,7 +116,7 @@ export function handoverRequested(group) {
  */
 export function neutralizeMarks(text) {
   let out = String(text ?? '');
-  for (const mark of FORGED_MARKS) out = out.split(mark).join(' ');
+  for (const pattern of FORGED_PATTERNS) out = out.replace(pattern, ' ');
   return out;
 }
 

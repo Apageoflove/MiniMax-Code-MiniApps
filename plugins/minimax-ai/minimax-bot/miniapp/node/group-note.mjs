@@ -68,7 +68,29 @@ function cleanEntry(entry) {
   const speaker = neutralizeMarks(String(entry.speaker ?? '')).replace(/\s+/g, ' ').trim();
   const text = neutralizeMarks(String(entry.text ?? '')).replace(/\s+/g, ' ').trim();
   if (!speaker || !text) return undefined;
-  return { speaker: speaker.slice(0, NOTE_SPEAKER_MAX), text: text.slice(-NOTE_ENTRY_MAX) };
+  return { speaker: speaker.slice(0, NOTE_SPEAKER_MAX), text: tailOf(text, NOTE_ENTRY_MAX) };
+}
+
+/**
+ * The closing part of a text, cut on a word boundary.
+ *
+ * A plain cut can land inside a word — or inside the half of a tag the neutralising left
+ * behind — and the entry would start mid-word. When the cut lands inside a word, the partial
+ * word is dropped, so the entry starts where a word starts.
+ *
+ * @param {string} text
+ * @param {number} [max]
+ * @returns {string}
+ */
+export function tailOf(text, max = NOTE_ENTRY_MAX) {
+  const value = String(text ?? '');
+  if (value.length <= max) return value;
+  const cut = value.length - max;
+  const tail = value.slice(cut);
+  // The character before the cut tells whether the cut landed inside a word.
+  if (!/\S/.test(value[cut - 1] ?? '')) return tail;
+  const trimmed = tail.replace(/^\S*\s+/, '');
+  return trimmed || tail;
 }
 
 /**
