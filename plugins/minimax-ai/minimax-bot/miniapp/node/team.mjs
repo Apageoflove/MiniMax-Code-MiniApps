@@ -336,6 +336,10 @@ export class Team {
       // conclusion of the previous hop into the next one. Both are off unless the group asks.
       maxHops: hopLimit({ maxHops: input.maxHops }),
       handover: input.handover === true,
+      // The group's note: a short record of what the Bots said at the end of the earlier rounds,
+      // handed to every Bot of the group. It is off unless the operator asks for it, and only the
+      // operator can ask for it — the MCP catalogue does not offer it.
+      notes: input.notes === true,
     };
     this.store.state.groups.push(group);
     this.store.bumpRoster();
@@ -369,6 +373,10 @@ export class Team {
     // The relay guardrails: absent leaves the group's own setting alone. 0 = no limit.
     if (patch.maxHops !== undefined) draft.maxHops = hopLimit({ maxHops: patch.maxHops });
     if (patch.handover !== undefined) draft.handover = Boolean(patch.handover);
+    // The group's note: the switch and the record are both the operator's. Switching it off
+    // stops the record and the hand-over; clearing it drops what was recorded.
+    if (patch.notes !== undefined) draft.notes = Boolean(patch.notes);
+    if (patch.clearNotes === true) draft.noteEntries = [];
     if (patch.members !== undefined) {
       const members = this.memberList(patch.members);
       if (members.length === 0) throw new EngineError('invalid', t('err.groupNeedsMember'));

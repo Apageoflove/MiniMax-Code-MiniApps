@@ -325,6 +325,36 @@ function groupOverview(group) {
       h(
         'section',
         null,
+        h('h3', { class: 'section-title' }, t('panels.group.notesHeading')),
+        h(
+          'label',
+          { class: 'check' },
+          h('input', {
+            type: 'checkbox',
+            class: 'switch',
+            name: 'notes',
+            checked: group.notes === true,
+            onchange: (event) => patch({ notes: event.target.checked === true }),
+          }),
+          h('span', null, t('panels.group.notes')),
+        ),
+        h('p', { class: 'hint', style: { marginTop: '8px' } }, t('panels.group.notesHint')),
+        ...(group.notes === true && Array.isArray(group.noteEntries) && group.noteEntries.length
+          ? [
+              h('p', { class: 'hint', style: { marginTop: '8px' } }, t('panels.group.notesList')),
+              ...group.noteEntries.map((entry) => clipped(`[${entry.speaker}] ${entry.text}`)),
+              h(
+                'button',
+                { type: 'button', class: 'link-row', onclick: () => patch({ clearNotes: true }) },
+                icon('eraser'),
+                h('span', { class: 'grow' }, t('panels.group.notesClear')),
+              ),
+            ]
+          : []),
+      ),
+      h(
+        'section',
+        null,
         h('h3', { class: 'section-title' }, t('panels.drawer.session')),
         h('button', { type: 'button', class: 'link-row', onclick: () => resetChat(chatId) }, icon('eraser'), h('span', { class: 'grow' }, t('panels.chat.newChat')), h('span', { class: 'end' }, t('panels.group.settingsKept'))),
       ),
