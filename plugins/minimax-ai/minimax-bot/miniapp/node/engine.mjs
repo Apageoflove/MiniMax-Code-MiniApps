@@ -313,9 +313,10 @@ export class Engine {
    *
    * Two things happen, in this order. The group is told why the chain stopped — a system notice
    * plus an event, so the panel can show it — and then the Bot that just spoke is asked to wrap
-   * up. The wrap-up is one model turn: it replaces the hop that was blocked, it is not an extra
-   * turn on top of the chain. When it fails the notice stands on its own and the round ends;
-   * a group must never be left hanging because a model call failed.
+   * up. The hop that was blocked does not run, but the wrap-up is a model turn of its own: a
+   * round that reaches the limit therefore runs `limit + 1` model turns, the last one being the
+   * wrap-up. When it fails the notice stands on its own and the round ends; a group must never
+   * be left hanging because a model call failed.
    *
    * @param {any} group
    * @param {string} chatId
@@ -346,6 +347,9 @@ export class Engine {
       sourceMessageId: options.sourceMessageId,
       sourceMessageIds: options.sourceMessageIds,
       signal: options.signal,
+      // The wrap-up belongs to the same round, so it belongs to the same task. Without it a
+      // group relay that came in through the task dispatcher would end up outside the task.
+      taskId: options.taskId,
     });
     if (result.status !== 'done') {
       this.logger.warn('minimax_bot.relay_converge_failed', { code: errorCode(result) || 'unknown' });
@@ -378,7 +382,10 @@ export class Engine {
             isAdmin ? t('brief.groupAdmin') : t('brief.groupMember'),
             t('brief.groupPass'),
             t('brief.groupNoPost'),
-            relayGuard ? t('brief.groupOneOwner') : '',
+            // The one-owner rule joins the list only when it is in force. Adding an empty
+            // string instead would still append a separator, and the English separator is a
+            // space — the brief would differ from the baseline by one trailing space.
+            ...(relayGuard ? [t('brief.groupOneOwner')] : []),
           ].join(t('brief.sentenceJoin'))
         : t('brief.private'),
       '',
@@ -1228,7 +1235,7 @@ export class Engine {
       if (converged) {
         // The chain stops here: the group is told why, and the Bot that just spoke wraps up.
         await this.convergeGroup(group, chatId, converged, lastConclusion, {
-          sourceMessageId, sourceMessageIds, signal: options.signal,
+          sourceMessageId, sourceMessageIds, signal: options.signal, taskId: options.taskId,
         });
       }
       if (paused) {

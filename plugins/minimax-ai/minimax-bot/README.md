@@ -32,9 +32,10 @@ Copy this directory, including the hidden `.minimax-plugin/` directory, into the
 
 ## 0.7.9 Optional relay guardrails for groups
 
-- A group can set a hop limit in the group settings: how many Bots may speak in one relay chain. `0` (the default) means no limit, exactly as before.
-- When the limit is reached the chain stops there. The group gets a notice saying so, and the Bot that just spoke is asked to summarise instead of calling the next one. The wrap-up replaces the blocked hand-off, so it costs one turn, not two.
-- A group can also hand the previous conclusion over to the next Bot: the next prompt carries the conclusion of the previous reply, so the next Bot does not have to dig the same ground out of the tools again. The hand-over is prompt text — no extra turn, no extra tool call, no memory write.
+- A group can set a hop limit in the group settings: how many Bots may speak in one relay chain. `0` (the default) means no limit, exactly as before; the largest limit is 20.
+- When the limit is reached the chain stops there. The group gets a notice saying so, and the Bot that just spoke is asked to summarise instead of calling the next one. The blocked hand-off does not run, but the wrap-up is a turn of its own: a round that reaches the limit runs `limit + 1` Agent turns, the last one being the wrap-up.
+- The limit counts every Bot that speaks in the round. In a group where every member replies (`reply_mode: all`), the first replies of the members already in the queue count towards it.
+- A group can also hand the previous conclusion over to the next Bot: the next prompt carries the conclusion of the previous reply, so the next Bot does not have to dig the same ground out of the tools again. The previous reply is listed in the new messages anyway — the hand-over repeats its conclusion on purpose. It is prompt text — no extra turn, no extra tool call, no memory write.
 - Both settings belong to the group and only you can set them. A Bot cannot change them: the MCP catalogue does not offer them, and a call that smuggles them in is ignored.
 
 ## 0.7.8 Safer automatic retries
@@ -102,7 +103,7 @@ Avatars are stored in the Mini App's `dataDir/avatars/`. `GET /api/avatars` list
 
 ## Data & access
 
-- **Agent turns**: every Bot reply, scheduled task and background job is an Agent turn run through `context.agent`, with the Agent's full capabilities (files, shell, Skills and MCP, including this plugin's own MCP tools). A tool call that needs approval is shown in the page or in the session's sidebar tab; it runs only after you choose **Allow once**. Nothing is approved automatically. A group with a relay limit spends one extra Agent turn on the round that reaches the limit: the wrap-up that replaces the blocked hand-off.
+- **Agent turns**: every Bot reply, scheduled task and background job is an Agent turn run through `context.agent`, with the Agent's full capabilities (files, shell, Skills and MCP, including this plugin's own MCP tools). A tool call that needs approval is shown in the page or in the session's sidebar tab; it runs only after you choose **Allow once**. Nothing is approved automatically. A group with a relay limit spends one more Agent turn on the round that reaches the limit: the wrap-up, which replaces the blocked hand-off.
 - **Files written**: only inside the Mini App's `dataDir`: `state.json`, `messages/`, `usage.jsonl`, `memory/` (including its journal, archive and backups), `uploads/` (your attachments) and `avatars/`.
 - **Files read outside `dataDir`**:
   - `/api/media` serves a local file (up to 1 GiB) only when its absolute path appears in a Bot message of that same chat.

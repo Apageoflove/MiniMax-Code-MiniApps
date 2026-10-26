@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  CONVERGE_MARK, HANDOVER_BLOCK_END, HANDOVER_BLOCK_MARK, HANDOVER_MAX,
+  CONVERGE_MARK, HANDOVER_BLOCK_END, HANDOVER_BLOCK_MARK, HANDOVER_MAX, HOP_LIMIT_MAX,
   handoverRequested, handoverSummary, hopLimit, neutralizeMarks, renderHandover, tailSummary,
 } from '../miniapp/node/relay-guard.mjs';
 import { Store } from '../miniapp/node/store.mjs';
@@ -25,7 +25,7 @@ import { MemoryStore } from '../miniapp/node/memory.mjs';
 import { Engine } from '../miniapp/node/engine.mjs';
 import { Team } from '../miniapp/node/team.mjs';
 import { createMcpHandler } from '../miniapp/node/mcp.mjs';
-import { setLocale } from '../miniapp/node/i18n.mjs';
+import { setLocale, t as translate } from '../miniapp/node/i18n.mjs';
 
 async function until(predicate) {
   for (let i = 0; i < 400; i += 1) {
@@ -35,13 +35,13 @@ async function until(predicate) {
   throw new Error('The expected engine state did not arrive');
 }
 
-async function fixture(t) {
+async function fixture(t, locale = 'en') {
   const dir = await mkdtemp(join(tmpdir(), 'bot-relay-guard-'));
   const store = new Store(dir);
   const memory = new MemoryStore(dir);
   await store.init();
   await memory.init();
-  setLocale('en');
+  setLocale(locale);
   const events = [];
   const engine = new Engine({
     store, memory, logger: { warn() {} }, broadcast: (event) => events.push(event), retryDelaysMs: [],
@@ -90,6 +90,14 @@ test('a broken hop limit reads as "no limit" instead of silencing the group', ()
   }
   // A fractional limit is floored: 2.9 hops is two hops.
   assert.equal(hopLimit({ maxHops: 2.9 }), 2);
+});
+
+test('a hop limit above the panel range is clamped', () => {
+  assert.equal(HOP_LIMIT_MAX, 20);
+  assert.equal(hopLimit({ maxHops: 20 }), 20);
+  assert.equal(hopLimit({ maxHops: 21 }), 20);
+  assert.equal(hopLimit({ maxHops: 500 }), 20);
+  assert.equal(hopLimit({ maxHops: '500' }), 20);
 });
 
 test('the hand-over has its own switch and is off unless the group asks for it', () => {
@@ -164,6 +172,51 @@ test('the guardrails are off by default: a group without the knobs has neither',
   assert.equal(engine.maxHops(hand), 0);
   assert.equal(engine.handoverEnabled(hand), true);
   assert.equal(engine.relayGuardActive(hand), true);
+});
+
+test('with the guardrails off the standing brief is the baseline brief, in every language', async (t) => {
+  // The English separator is a space, so a part that is present but empty would leave a
+  // trailing space in the brief — one byte more than the baseline. Compare the group part
+  // with the baseline parts themselves, in both languages.
+  for (const locale of ['en', 'zh']) {
+    await t.test(locale, async (t) => {
+      const { engine, store, team } = await fixture(t, locale);
+      const chief = store.getBot(store.state.bots[0].id);
+      const group = await team.createGroup(chief, { name: 'Group', members: [chief.id], admin: chief.id });
+      const brief = engine.buildStandingBrief(chief, `group:${group.id}`);
+      // The one-owner rule is not in the brief at all.
+      assert.ok(!brief.includes('one owner at each stage'));
+      assert.ok(!brief.includes('一个负责人'));
+      // The group part is exactly the baseline parts, joined by the language's separator.
+      const baseline = [
+        translate('brief.inGroup', { name: group.name, notice: translate('brief.none') }),
+        translate('brief.groupAdmin'),
+        translate('brief.groupPass'),
+        translate('brief.groupNoPost'),
+      ].join(translate('brief.sentenceJoin'));
+      assert.ok(brief.includes(baseline), 'the group part is the baseline parts, joined');
+      // And the brief does not end on a separator.
+      assert.ok(!/\s$/.test(brief), `the brief ends with ${JSON.stringify(brief.slice(-3))}`);
+    });
+  }
+});
+
+test('the wrap-up turn belongs to the task the relay came in with', async (t) => {
+  const { engine, store, team } = await fixture(t);
+  const chief = store.getBot(store.state.bots[0].id);
+  const alice = await team.createBot(chief, { name: 'Alice', role: 'Writer', instructions: 'Drafts.' });
+  const group = await team.createGroup(chief, { name: 'Relay group', members: [alice.id], admin: alice.id, maxHops: 2 });
+  engine.agent = { async run(input, options) {
+    const ids = started(input, options, 'session-alice');
+    return { ...ids, status: 'finished', text: 'Wrap-up: the plan stands.' };
+  } };
+  await engine.convergeGroup(group, `group:${group.id}`, { reason: 'hop_limit', max: 2 }, {
+    botId: alice.id, name: alice.name, text: 'First: take B. @Bob check it.', ts: Date.now(),
+  }, { taskId: 'task_abc' });
+  const messages = await store.getMessages(`group:${group.id}`);
+  const wrapUp = messages.find((message) => message.role === 'bot' && message.status === 'done');
+  assert.ok(wrapUp, 'the wrap-up spoke');
+  assert.equal(wrapUp.taskId, 'task_abc', 'the wrap-up is filed under the task it belongs to');
 });
 
 test('without a limit the standing brief is exactly what it was', async (t) => {

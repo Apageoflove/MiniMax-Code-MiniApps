@@ -47,11 +47,16 @@ const FORGED_MARKS = [
   '<minimax-bot-group-summary-task>',
 ];
 
+/** The largest hop limit a group can hold. The panel offers the same range. */
+export const HOP_LIMIT_MAX = 20;
+
 /**
  * The hop limit of a group: how many Bots may speak in one relay chain. 0 = no limit.
  *
  * A broken value reads as "no limit", so a hand-edited state file can never silence a group.
  * Only a number (or a string of digits) is a limit: `true`, `null` and `'abc'` are not.
+ * A limit above {@link HOP_LIMIT_MAX} is clamped, so the same bound holds whether the value
+ * came from the panel or from a direct call to the group API.
  * @param {any} group
  * @returns {number}
  */
@@ -59,11 +64,11 @@ export function hopLimit(group) {
   const value = group?.maxHops;
   if (typeof value === 'number') {
     if (!Number.isFinite(value) || value <= 0) return 0;
-    return Math.floor(value);
+    return Math.min(Math.floor(value), HOP_LIMIT_MAX);
   }
   if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
     const raw = Number(value.trim());
-    return raw > 0 ? raw : 0;
+    return raw > 0 ? Math.min(raw, HOP_LIMIT_MAX) : 0;
   }
   return 0;
 }
