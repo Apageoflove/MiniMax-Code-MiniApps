@@ -322,7 +322,7 @@ export class Engine {
    * @param {string} chatId
    * @param {{ reason: string, max: number }} info
    * @param {{ botId: string, name: string, text: string, ts: number } | undefined} last
-   * @param {{ sourceMessageId?: string, sourceMessageIds?: string[], signal?: AbortSignal }} [options]
+   * @param {{ sourceMessageId?: string, sourceMessageIds?: string[], taskId?: string, signal?: AbortSignal }} [options]
    * @returns {Promise<{ ok: boolean, reason: string }>}
    */
   async convergeGroup(group, chatId, info, last, options = {}) {
