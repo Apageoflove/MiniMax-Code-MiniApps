@@ -79,6 +79,7 @@ The MiniMax Code Agent communicates through the host MCP client. Business reques
 | [A/时差保安 / Timezone Guard](plugins/liuchen19960902/timezone-guard/) | Check the other side's local time before you message: the target city's clock turns into a green "now is fine", yellow "keep it short", or red "go to sleep" verdict. Requires MiniMax Code 3.1.2 or later | [FineCat](https://github.com/LiuChen19960902) |
 | [AI Node Canvas](plugins/antianqi/ai-node-canvas/) | An infinite-canvas node graph for MiniMax Code: wire text, image, video and audio runs into a graph, let each result flow downstream, and run media tools on any result | [antianqi](https://github.com/antianqi) |
 | [Agent Flow](plugins/huixin615/agent-flow/) | Import this plugin's Hook event file to inspect native task calls and sub-agent lifecycles, with exact task-to-child links when IDs are available. Choose a recorded chat or the latest imported record; no Host session files are opened. Requires MiniMax Code 3.1.4 or later | [Huixin615](https://github.com/Huixin615) |
+| [蹬王之王 · Expiry Guardian](plugins/hylouis233/expiry-guardian/) | Track credit and reset-card expiry from a local ledger you maintain, and get a "spend the card or let the credits burn first" recommendation with the reasoning spelled out | [Hylouis](https://github.com/Hylouis233) |
 
 <details>
 <summary>Preview: Token Usage Board</summary>
