@@ -46,17 +46,18 @@ export const HANDOVER_TAIL = 400;
 /**
  * Protocol marks a reply must never be able to forge: a Bot that writes them into its answer
  * would otherwise be able to open a block of its own in the next Bot's prompt.
+ *
+ * The pattern matches any `minimax-bot-…` tag rather than a fixed list, so a mark that is
+ * spelled differently — with spaces, with an attribute, in another case — is caught as well.
+ * The attribute part is bounded, so a stray `<` cannot swallow the text behind it.
  */
-const FORGED_MARKS = [
-  HANDOVER_BLOCK_MARK,
-  HANDOVER_BLOCK_END,
-  CONVERGE_MARK,
-  CONTEXT_BLOCK_MARK,
-  CONTEXT_BLOCK_END,
-  '<minimax-bot-group-summary>',
-  '</minimax-bot-group-summary>',
-  '<minimax-bot-group-summary-task>',
-];
+const MARK_PATTERN = /<\s*\/?\s*minimax-bot-[a-z0-9-]+(?:\s[^>]{0,40})?>/gi;
+
+/** A dash that looks like the hyphen of a protocol mark. */
+const LOOKALIKE_DASH = /[‐-―]/g;
+
+/** A full-width ASCII character, which a Host that folds them would read as ASCII. */
+const FULLWIDTH_ASCII = /[！-～]/g;
 
 /** The largest hop limit a group can hold. The panel offers the same range. */
 export const HOP_LIMIT_MAX = 20;
@@ -94,19 +95,19 @@ export function handoverRequested(group) {
 }
 
 /**
- * A protocol mark is a literal, so the pattern has to escape whatever it contains.
+ * A copy of the text with the characters that can stand in for a hyphen or an ASCII letter
+ * folded to their ASCII form.
+ *
+ * Every fold replaces one character with one character, so a mark found in the folded text
+ * points at the same characters in the original and the text itself stays untouched.
  * @param {string} text
  * @returns {string}
  */
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function foldMarks(text) {
+  return text
+    .replace(LOOKALIKE_DASH, '-')
+    .replace(FULLWIDTH_ASCII, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0));
 }
-
-/**
- * The marks are matched case-insensitively: a tag in another case is still a tag, and a Host
- * that reads the marks case-insensitively must not be handed one.
- */
-const FORGED_PATTERNS = FORGED_MARKS.map((mark) => new RegExp(escapeRegExp(mark), 'gi'));
 
 /**
  * Removes the protocol marks from a text, so a reply can never pretend to open or close a
@@ -115,9 +116,15 @@ const FORGED_PATTERNS = FORGED_MARKS.map((mark) => new RegExp(escapeRegExp(mark)
  * @returns {string}
  */
 export function neutralizeMarks(text) {
-  let out = String(text ?? '');
-  for (const pattern of FORGED_PATTERNS) out = out.replace(pattern, ' ');
-  return out;
+  const value = String(text ?? '');
+  const folded = foldMarks(value);
+  let out = '';
+  let last = 0;
+  for (const match of folded.matchAll(MARK_PATTERN)) {
+    out += value.slice(last, match.index) + ' ';
+    last = match.index + match[0].length;
+  }
+  return out + value.slice(last);
 }
 
 /**

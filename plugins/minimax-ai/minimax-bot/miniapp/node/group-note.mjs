@@ -72,11 +72,21 @@ function cleanEntry(entry) {
 }
 
 /**
+ * A word character in the Latin sense: a letter or a digit that a cut can land inside.
+ *
+ * A CJK ideograph is its own unit, so a cut between two of them already lands on a boundary.
+ */
+const LATIN_WORD = /[A-Za-z0-9_]/;
+
+/** How much of a broken word may be dropped to reach the next boundary. */
+const WORD_PREFIX_MAX = 20;
+
+/**
  * The closing part of a text, cut on a word boundary.
  *
  * A plain cut can land inside a word — or inside the half of a tag the neutralising left
- * behind — and the entry would start mid-word. When the cut lands inside a word, the partial
- * word is dropped, so the entry starts where a word starts.
+ * behind — and the entry would start mid-word. Only a Latin word can be cut in half: Chinese
+ * has no spaces, so trimming up to the first whitespace there would drop the whole entry.
  *
  * @param {string} text
  * @param {number} [max]
@@ -87,10 +97,13 @@ export function tailOf(text, max = NOTE_ENTRY_MAX) {
   if (value.length <= max) return value;
   const cut = value.length - max;
   const tail = value.slice(cut);
-  // The character before the cut tells whether the cut landed inside a word.
-  if (!/\S/.test(value[cut - 1] ?? '')) return tail;
-  const trimmed = tail.replace(/^\S*\s+/, '');
-  return trimmed || tail;
+  // The characters around the cut tell whether it landed inside a Latin word.
+  if (!LATIN_WORD.test(value[cut - 1] ?? '') || !LATIN_WORD.test(tail[0] ?? '')) return tail;
+  // Drop the rest of that word and the space after it. A word longer than this is left alone:
+  // dropping half of a long token would cost more than the fragment is worth.
+  const fragment = /^[A-Za-z0-9_]+/.exec(tail)?.[0] ?? '';
+  if (!fragment || fragment.length > WORD_PREFIX_MAX) return tail;
+  return tail.slice(fragment.length).replace(/^\s+/, '') || tail;
 }
 
 /**
