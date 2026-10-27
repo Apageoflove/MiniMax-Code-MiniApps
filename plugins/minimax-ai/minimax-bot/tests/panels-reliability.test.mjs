@@ -325,3 +325,23 @@ test('the group note record stays visible and clearable while the switch is off'
   assert.doesNotMatch(document.getElementById('drawer').textContent, /neither added to nor read/);
   state.groups = []; state.current = 'bot:b1';
 });
+
+test('the panel states the limits the server sends, not numbers of its own', async () => {
+  state.groups = [{
+    id: 'g1', name: 'Team', notice: '', adminId: 'b1', memberIds: ['b1'], replyMode: 'admin',
+    notes: true, noteEntries: [{ speaker: 'Rob', text: 'we go with plan B' }],
+  }];
+  state.current = 'group:g1';
+  state.drawer = { open: true, view: 'overview', memTab: 'self', dirty: false };
+  state.noteLimits = { entries: 6, chars: 1200 };
+  renderDrawer(); await tick();
+  assert.match(document.getElementById('drawer').textContent, /6 entries and 1200 characters/);
+  // Different limits, different text: the panel reads them, it does not write them down.
+  state.noteLimits = { entries: 3, chars: 400 };
+  renderDrawer(); await tick();
+  assert.match(document.getElementById('drawer').textContent, /3 entries and 400 characters/);
+  delete state.noteLimits;
+  renderDrawer(); await tick();
+  assert.doesNotMatch(document.getElementById('drawer').textContent, /entries and/);
+  state.groups = []; state.current = 'bot:b1';
+});

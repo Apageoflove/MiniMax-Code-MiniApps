@@ -8,7 +8,7 @@ import { extname, isAbsolute, join } from 'node:path';
 
 import { createHash } from 'node:crypto';
 import { Engine, EngineError, UPLOAD_NAME_RE } from './engine.mjs';
-import { noteEntries } from './group-note.mjs';
+import { NOTE_MAX_CHARS, NOTE_MAX_ENTRIES, noteEntries } from './group-note.mjs';
 import { createMcpHandler } from './mcp.mjs';
 import { LANGUAGE_PREFS, locale, matchLocale, t } from './i18n.mjs';
 import { memoryBudget, MemoryError, MemoryStore } from './memory.mjs';
@@ -144,6 +144,9 @@ export async function start(context) {
     groups: store.state.groups.map((group) => (
       Array.isArray(group.noteEntries) ? { ...group, noteEntries: noteEntries(group) } : group
     )),
+    // The limits of a group note, so the panel can state them instead of writing down numbers
+    // that would drift away from the ones the plugin uses.
+    noteLimits: { entries: NOTE_MAX_ENTRIES, chars: NOTE_MAX_CHARS },
     schedules: store.state.schedules,
     helpers: engine.helpersList(),
     tasks: engine.tasks.uiList(),
