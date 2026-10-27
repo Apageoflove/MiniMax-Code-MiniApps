@@ -39,6 +39,12 @@ Copy this directory, including the hidden `.minimax-plugin/` directory, into the
 - The note is off unless you switch it on in the group settings, and a group without a note gets exactly the prompt it got before. Only you can set it: a Bot cannot switch it on, and the record itself is written by the plugin — a Bot cannot write into it.
 - The note holds the most recent rounds and stays within a small size limit. The group settings show what was recorded, and you can clear it there. Switching the note off stops the recording and stops handing the record to the Bots, but what was already recorded stays until you clear it.
 
+## 0.7.12 The group note, again
+
+- A recorded line keeps its Chinese text. Cutting a line to its closing part used to trim up to the first space, and Chinese has no spaces, so a Chinese entry could lose almost all of itself. The trim now only drops a half Latin word, and never more than 20 characters.
+- The protocol marks are matched in any spelling: a tag with spaces, with an attribute, in another case, or with a dash that looks like a hyphen is removed as well. The text around it is left alone, and Chinese punctuation is not rewritten.
+- The group settings state the limits the plugin actually uses. The panel reads them from the server instead of writing down numbers of its own.
+
 ## 0.7.11 The group note, cleaned up
 
 - Switching the note off no longer hides what was recorded. The group settings keep showing the record and its **Clear** button while the record exists, and say that the switch is off. The record itself is kept until you clear it, so switching the note back on hands the same record to the Bots again.
