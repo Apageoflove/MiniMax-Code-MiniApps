@@ -82,6 +82,7 @@ The MiniMax Code Agent communicates through the host MCP client. Business reques
 | [Agent Flow](plugins/huixin615/agent-flow/) | Import this plugin's Hook event file to inspect native task calls and sub-agent lifecycles, with exact task-to-child links when IDs are available. Choose a recorded chat or the latest imported record; no Host session files are opened. Requires MiniMax Code 3.1.4 or later | [Huixin615](https://github.com/Huixin615) |
 | [蹬王之王 · Expiry Guardian](plugins/hylouis233/expiry-guardian/) | Track credit and reset-card expiry from a local ledger you maintain, and get a "spend the card or let the credits burn first" recommendation with the reasoning spelled out | [Hylouis](https://github.com/Hylouis233) |
 | [MiniMax Pet](plugins/minimax-ai/minimax-pet/) | A lightweight companion with appearance, task and settings tabs, visible-session activity, answer-needed reminders and a transparent desktop pet. Requires MiniMax Code 3.1.6 or later | [MiniMax](https://github.com/MiniMax-AI) |
+| [MCP OAuth Console](plugins/microbiosis/mcp-oauth-console/) | Sign in to MCP servers that require OAuth: device-code or authorization-code + PKCE flow, the `Authorization` header written into the MCP configuration, and an opt-in refresh before expiry | [Microbiosis](https://github.com/Microbiosis) |
 
 <details>
 <summary>Preview: Token Usage Board</summary>

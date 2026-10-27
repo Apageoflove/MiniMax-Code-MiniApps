@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "name": "mcp-oauth-console",
+  "displayName": "MCP OAuth 令牌台",
+  "version": "1.0.0",
+  "description": "为受 OAuth 保护的 MCP 服务器完成设备码或授权码 + PKCE 登录，可选择自动续期，并把令牌写回本地 mcp.json。",
+  "author": "Microbiosis",
+  "icon": "icon.png",
+  "category": "Code",
+  "exampleQueries": [
+    "打开 MCP OAuth 令牌台",
+    "为 hf-endpoints 重新授权并写入 mcp.json"
+  ],
+  "apps": [],
+  "mcpServers": [],
+  "skills": []
+}
