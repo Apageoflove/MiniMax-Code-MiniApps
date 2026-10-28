@@ -9,7 +9,7 @@ import { selectMemoryContext } from './memory-context.mjs';
 import { UserInbox } from './user-inbox.mjs';
 import { TaskDispatcher } from './task-dispatcher.mjs';
 import { modelKey, newId, withEffort } from './store.mjs';
-import { CONVERGE_MARK, CONTEXT_BLOCK_END, CONTEXT_BLOCK_MARK, handoverRequested, handoverSummary, hopLimit, renderHandover } from './relay-guard.mjs';
+import { CONVERGE_MARK, CONTEXT_BLOCK_END, CONTEXT_BLOCK_MARK, handoverRequested, handoverSummary, hopLimit, neutralizeMarks, renderHandover } from './relay-guard.mjs';
 import { appendNote, notesEnabled, renderNote } from './group-note.mjs';
 
 /** @typedef {import('./miniapp-api.js').MiniAppAgentClient} MiniAppAgentClient */
@@ -17,6 +17,17 @@ import { appendNote, notesEnabled, renderNote } from './group-note.mjs';
 /** @typedef {import('./miniapp-api.js').MiniAppAgentRunResult} MiniAppAgentRunResult */
 /** @typedef {import('./store.mjs').Store} Store */
 /** @typedef {import('./memory.mjs').MemoryStore} MemoryStore */
+
+/**
+ * A field a Bot (or the user) wrote: names, roles, notices and instructions travel into the
+ * standing brief of every Bot of the group. A protocol mark in one of them would close the
+ * brief's block early and let the rest of the text read as if the plugin had said it, so the
+ * marks go the same way as in a reply: out of the text, the words around them untouched.
+ * @param {unknown} value
+ */
+function clean(value) {
+  return neutralizeMarks(String(value ?? ''));
+}
 
 const TOP_LEVEL_SLOTS = 3; // Leave Host capacity while all chat and task turns share these slots.
 const GROUP_CONTEXT_MESSAGES = 30;
@@ -252,15 +263,15 @@ export class Engine {
   roster() {
     const { bots, groups } = this.store.state;
     const botLines = bots.map((bot) =>
-      t('brief.botLine', { name: bot.name, id: bot.id, main: bot.isMain ? t('brief.mainTag') : '', role: bot.role || t('brief.noRole') }),
+      t('brief.botLine', { name: clean(bot.name), id: bot.id, main: bot.isMain ? t('brief.mainTag') : '', role: clean(bot.role) || t('brief.noRole') }),
     );
     const groupLines = groups.map((group) => {
-      const admin = this.store.getBot(group.adminId)?.name ?? t('brief.none');
+      const admin = clean(this.store.getBot(group.adminId)?.name) || t('brief.none');
       const members = group.memberIds
-        .map((id) => this.store.getBot(id)?.name)
+        .map((id) => clean(this.store.getBot(id)?.name))
         .filter(Boolean)
         .join(t('list.sep'));
-      return t('brief.groupLine', { name: group.name, id: group.id, admin, members });
+      return t('brief.groupLine', { name: clean(group.name), id: group.id, admin, members });
     });
     return { botLines, groupLines };
   }
@@ -316,7 +327,7 @@ export class Engine {
     // This build keeps no group notes, so the hand-over carries the tail of the reply.
     const text = handoverSummary({ note: '', reply: last.text });
     if (!text) return undefined;
-    return { from: last.name, text };
+    return { from: clean(last.name), text };
   }
 
 
@@ -405,17 +416,17 @@ export class Engine {
     const note = group ? renderNote(group) : '';
     const lines = [
       CONTEXT_BLOCK_MARK,
-      t('brief.intro', { name: bot.name, id: bot.id }),
-      bot.role ? t('brief.role', { role: bot.role }) : '',
+      t('brief.intro', { name: clean(bot.name), id: bot.id }),
+      bot.role ? t('brief.role', { role: clean(bot.role) }) : '',
       bot.isMain ? t('brief.mainPower') : '',
       '',
       t('brief.hInstructions'),
-      bot.instructions?.trim() || t('brief.noInstructions'),
+      clean(bot.instructions?.trim()) || t('brief.noInstructions'),
       '',
       t('brief.hChat'),
       group
         ? [
-            t('brief.inGroup', { name: group.name, notice: group.notice || t('brief.none') }),
+            t('brief.inGroup', { name: clean(group.name), notice: clean(group.notice) || t('brief.none') }),
             isAdmin ? t('brief.groupAdmin') : t('brief.groupMember'),
             t('brief.groupPass'),
             t('brief.groupNoPost'),
@@ -1165,10 +1176,15 @@ export class Engine {
     const members = group.memberIds.map((id) => this.store.getBot(id)).filter(Boolean)
       .map((bot) => ({ id: bot.id, name: bot.name.toLowerCase() }))
       .sort((a, b) => b.name.length - a.name.length);
+    // A word character of any script: it ends a name, so "Alicex" is not "Alice".
     const isWord = (value) => Boolean(value && /[\p{L}\p{N}\p{M}_]/u.test(value));
+    // An ASCII word character is what makes an '@' part of a handle: the local part of an
+    // email address. Chinese has no spaces between words, so a character before the '@' is a
+    // word of its own there ("请@某人"), and it must not swallow the mention.
+    const isAsciiWord = (value) => Boolean(value && /[A-Za-z0-9_]/.test(value));
     const found = [];
     for (let index = lower.indexOf('@'); index >= 0; index = lower.indexOf('@', index + 1)) {
-      if (isWord(lower[index - 1])) continue;
+      if (isAsciiWord(lower[index - 1])) continue;
       const member = members.find(({ name }) => lower.startsWith(name, index + 1) && !isWord(lower[index + 1 + name.length]));
       if (!member) continue;
       if (member.id !== excludeId && !found.includes(member.id)) found.push(member.id);
@@ -1330,14 +1346,17 @@ export class Engine {
           : m.role === 'relay'
             ? m.fromName ?? t('bot.deleted')
             : this.store.getBot(m.botId)?.name ?? t('bot.deleted');
-      return `[${who}] ${clip(m.role === 'user' ? agentTextOf(m.text, m.attachments) : m.text)}`;
+      // The text of a message in the group is text that rides along into the next Bot's
+      // prompt, and it comes from a reply or from a user. A protocol mark in it would let
+      // the text after it read as if the plugin had written it.
+      return `[${clean(who)}] ${clip(clean(m.role === 'user' ? agentTextOf(m.text, m.attachments) : m.text))}`;
     });
     const text = [
       ...head,
-      t('group.newMessages', { name: group.name }),
+      t('group.newMessages', { name: clean(group.name) }),
       ...(lines.length ? lines : [t('group.noNew')]),
       '',
-      t('group.yourTurn', { name: bot.name }),
+      t('group.yourTurn', { name: clean(bot.name) }),
     ].join('\n');
     const lastIncluded = recent.at(-1)?.seq ?? lastSeenSeq;
     // Another member's streaming reply is not readable yet. Do not advance past that hole:
