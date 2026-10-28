@@ -1,5 +1,7 @@
 // @ts-check
 // Selection affects one prompt only. Storage and the caller's entries remain untouched.
+import { neutralizeMarks } from './relay-guard.mjs';
+
 export const MEMORY_CONTEXT_MAX = 6000;
 
 function queryTerms(query) {
@@ -24,7 +26,11 @@ function relevance(entry, terms) {
 function serializeEntry(entry) {
   return JSON.stringify({
     scope: entry.scope, id: entry.id, key: entry.key ?? '', revision: entry.revision ?? '',
-    pinned: Boolean(entry.pinned), text: entry.text,
+    pinned: Boolean(entry.pinned),
+    // A memory entry is written by a Bot (or by the user) and travels into the memory block of
+    // every Bot that reads it. A protocol mark in it would close that block early, so the marks
+    // go the way they go in a reply: out of the text, the words around them untouched.
+    text: neutralizeMarks(String(entry.text ?? '')),
   });
 }
 
