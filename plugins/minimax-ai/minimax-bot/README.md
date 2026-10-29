@@ -30,6 +30,14 @@ Copy this directory, including the hidden `.minimax-plugin/` directory, into the
 - **Reply actions**: the reaction, copy, quote-reply and open-session buttons sit at the bottom-left of a reply, under its last line. A long reply therefore keeps its actions within reach at the end of the text instead of pushing them off the top of the message. The reaction indicator sits directly above that row and is painted with the app's own tag colours, so it follows the light and dark themes.
 - **Working messages of one reply**: the Host records a text part for every turn a Bot takes between two tool calls, so a reply that worked for a while arrives with many parts, and the page draws one bubble per part. The bubbles keep the official shape and order, and a small gap between them tells them apart instead of letting them read as one block of text.
 
+## 0.7.15 What the plugin refuses to guess
+
+A value the plugin declares is now checked at the door instead of being quietly turned into another legal value. A scheduled task whose `kind` is not `daily`, `interval` or `once` is refused with the list of the values it may take — leaving `kind` out is still the default daily task — and a group whose `reply_mode` is not `admin` or `all` is refused too, without touching the setting the group already had. The usage range has to be a whole number of days from 1 to 90; a value outside it gets an error instead of an empty chart that reads like the quota had been wiped.
+
+The MCP tools check the arguments they declare before they run. A value of the wrong JSON type is refused at the door, so a call that does not fit the schema never reaches the tool and never changes anything. For the enumerations a tool answers itself — the memory scope, the group reply mode, the schedule kind — the tool's own message is the one the model reads: it names the range and what the value would have changed, which a schema cannot. A failure that is not one of the plugin's own errors answers with a plain notice now, and the detail goes to the log instead of into the model's context.
+
+An avatar may come from the avatar library or from an image uploaded in the page only. A path on the computer is refused, the plugin reads no file outside its own `dataDir` for one, and the refused path is not echoed back — so the field cannot be used to ask what exists on the disk.
+
 ## 0.7.10 Optional group notes
 
 - A group can keep a note of what it said. After every round the group records the closing lines of the replies, and every Bot of the group gets that record in its standing brief.
