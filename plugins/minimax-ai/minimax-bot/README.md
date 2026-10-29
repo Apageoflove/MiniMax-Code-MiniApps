@@ -30,6 +30,12 @@ Copy this directory, including the hidden `.minimax-plugin/` directory, into the
 - **Reply actions**: the reaction, copy, quote-reply and open-session buttons sit at the bottom-left of a reply, under its last line. A long reply therefore keeps its actions within reach at the end of the text instead of pushing them off the top of the message. The reaction indicator sits directly above that row and is painted with the app's own tag colours, so it follows the light and dark themes.
 - **Working messages of one reply**: the Host records a text part for every turn a Bot takes between two tool calls, so a reply that worked for a while arrives with many parts, and the page draws one bubble per part. The bubbles keep the official shape and order, and a small gap between them tells them apart instead of letting them read as one block of text.
 
+## 0.7.14 Text that rides into the next Bot's prompt
+
+Text that travels from one Bot into another Bot's prompt is cleaned on the way. A reply in a group, a name, a role, a notice, an instruction, a memory entry, the report of a finished dependency and the brief of a background job are all stripped of the marks they may not forge. Two vocabularies are stripped: the protocol marks of the plugin itself, and the block tags the Host writes into its own prompts (`<system-reminder>`, `<agent-context>` and the rest of that vocabulary) — a Bot that copies one of them into its answer would otherwise hand the next Bot a text that reads like a notice the Host has just sent. The report a finished dependency brings back is cleaned the same way, so a child Bot cannot write a block of its own into the prompt of the Bot that has to check its work.
+
+Only the tag goes — the words around it stay — and the plugin's own delivery format (`<media src="…" />`) is not touched, so a report that names a file still reaches the Bot that has to hand it over.
+
 ## 0.7.10 Optional group notes
 
 - A group can keep a note of what it said. After every round the group records the closing lines of the replies, and every Bot of the group gets that record in its standing brief.
@@ -42,7 +48,7 @@ Copy this directory, including the hidden `.minimax-plugin/` directory, into the
 ## 0.7.12 The group note, again, and background jobs that count
 
 - A recorded line keeps its Chinese text. Cutting a line to its closing part used to trim up to the first space, and Chinese has no spaces, so a Chinese entry could lose almost all of itself. The trim now only drops a half Latin word, and never more than 20 characters.
-- The protocol marks are matched in any spelling: a tag with spaces, with an attribute, in another case, or with a dash that looks like a hyphen is removed as well. The text around it is left alone, and Chinese punctuation is not rewritten.
+- The protocol marks are matched in any spelling: a tag with spaces, with an attribute of any length, in another case, with a dash that looks like a hyphen, or with a character that takes no space inside it is removed as well. An attribute is read as one — the characters a tag attribute is made of — so a mark's name written inside a sentence does not take the rest of the sentence with it. The text around it is left alone, and Chinese punctuation is not rewritten.
 - The group settings state the limits the plugin actually uses. The panel reads them from the server instead of writing down numbers of its own.
 - A background job is an Agent turn like any other, so the usage panel counts it. Before, the panel showed fewer turns than the model actually ran: the job's own turn never reached the ledger, only the turn that relayed its report back.
 - The job's row carries the time it took, the tools it called and the reply it produced, and it says how the job ended: a job that failed is an error, one that was stopped or cut off is aborted.
@@ -51,6 +57,7 @@ Copy this directory, including the hidden `.minimax-plugin/` directory, into the
 
 - A mention works right after a Chinese word. The character in front of the `@` used to end the mention whenever it was a letter of any script, and Chinese has no spaces between words, so `请@某人` and `好的@某人` reached nobody. Only an ASCII letter, digit or underscore in front of the `@` ends it now, which is what the local part of an email address is made of. An address is still not a mention, a name that runs into more words (`@Alicex`) still is not one either, and English is unchanged: `mail@alice.com` and `ok@alice` reach nobody, while `@alice`, `@alice.` and `@Alice Smith` do.
 - A name, a role, a notice, an instruction or a memory entry cannot close a block of the plugin's own. Those travel into the standing brief of every Bot of the group and into the memory block, and a protocol mark in one of them used to close the block early and let the text after it read as if the plugin had written it. A reply in a group travels into the next Bot's prompt the same way, so a mark in it cannot open a block of its own there either. The marks go the way they go in a reply: out of the text, the words around them untouched.
+- The brief of a background job gets the same treatment. The Bot's name and role are written into that brief's block, so a protocol mark in either of them used to close it early as well; both are now cleaned the same way before they go in.
 
 ## 0.7.11 The group note, cleaned up
 
