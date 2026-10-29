@@ -36,6 +36,10 @@ Text that travels from one Bot into another Bot's prompt is cleaned on the way. 
 
 Only the tag goes — the words around it stay — and the plugin's own delivery format (`<media src="…" />`) is not touched, so a report that names a file still reaches the Bot that has to hand it over.
 
+## 0.7.18 An unconfirmed outcome still closes its batch
+
+An unconfirmed outcome is still never replayed, but it no longer leaves its batch open forever: the batch closes, its report says the outcome is unknown, and it is trimmed like any settled batch. Finished batches no longer pile up in the state file either: the batches that still owe something stay, the newest 30 settled ones stay, and older ones leave a small record without the reply. The reply of a batch that was trimmed is read back from the chat message that holds it, page by page, and a reply whose chat message is gone is reported as truncated instead of silently shortened.
+
 ## 0.7.10 Optional group notes
 
 - A group can keep a note of what it said. After every round the group records the closing lines of the replies, and every Bot of the group gets that record in its standing brief.
