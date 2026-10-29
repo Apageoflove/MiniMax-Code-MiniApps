@@ -1,7 +1,7 @@
 // @ts-check
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { join } from 'node:path';
 import { BOT_SKINS, SKIN_INK, effortOf, newId, normalizeEffort, normalizeFace, normalizeModel, normalizeSkin, skinForColor } from './store.mjs';
 import { EngineError, nextRun } from './engine.mjs';
 import { hopLimit } from './relay-guard.mjs';
@@ -13,11 +13,47 @@ import { isDefaultText, resolveLocale, setLocale, t } from './i18n.mjs';
 /** @typedef {import('./memory.mjs').MemoryStore} MemoryStore */
 /** @typedef {import('./engine.mjs').Engine} Engine */
 
+/** The memory scopes a request may name. The MCP catalogue declares the same list. */
+export const MEMORY_SCOPES = /** @type {const} */ (['self', 'team', 'bot']);
+
 /** An uploaded avatar the page already scaled down; data URLs above this are refused. */
 const MAX_AVATAR_BYTES = 512 * 1024;
 /** An image file a Bot names by path; it is stored as-is, so it must already be small. */
 const MAX_AVATAR_FILE_BYTES = 2 * 1024 * 1024;
 const AVATAR_NAME_RE = /^[a-zA-Z0-9_-]+\.(png|jpe?g|webp|gif)$/;
+
+/** The kinds a scheduled task can have — the ones the catalogue offers. */
+const SCHEDULE_KINDS = /** @type {readonly string[]} */ (['daily', 'interval', 'once']);
+/** Who answers in a group: the admin alone, or every member. */
+const REPLY_MODES = /** @type {readonly string[]} */ (['admin', 'all']);
+
+/**
+ * The kind of a scheduled task. A kind the catalogue does not offer is refused: any other kind
+ * would quietly run at a time the user never asked for.
+ * @param {unknown} value
+ * @returns {'daily' | 'interval' | 'once'}
+ */
+function scheduleKindOf(value) {
+  const kind = String(value);
+  if (!SCHEDULE_KINDS.includes(kind)) {
+    throw new EngineError('invalid', t('err.scheduleKind', { allowed: SCHEDULE_KINDS.join(', ') }));
+  }
+  return /** @type {'daily' | 'interval' | 'once'} */ (kind);
+}
+
+/**
+ * Who answers in a group. A mode the catalogue does not offer is refused: the other mode would
+ * quietly change who hears the Bots.
+ * @param {unknown} value
+ * @returns {'admin' | 'all'}
+ */
+function replyModeOf(value) {
+  const mode = String(value);
+  if (!REPLY_MODES.includes(mode)) {
+    throw new EngineError('invalid', t('err.replyMode', { allowed: REPLY_MODES.join(', ') }));
+  }
+  return /** @type {'admin' | 'all'} */ (mode);
+}
 
 /** The image type from its first bytes, so a renamed file of another kind is refused. */
 function imageExt(buffer) {
@@ -187,8 +223,9 @@ export class Team {
 
   /**
    * The image an `avatar` value names: a `data:image/...;base64,` upload from the page, or an
-   * existing gallery file name, or absolute path to a local image (how a Bot sets one). `null` / `''` / `default` mean "back to
-   * the octopus" and return `undefined`. Anything unreadable or not an image is refused.
+   * existing gallery file name. `null` / `''` / `default` mean "back to
+   * the octopus" and return `undefined`. Anything else is refused: a path on this computer is
+   * not an avatar source, so no file outside this Mini App's data directory is ever read.
    * @returns {Promise<{ buffer: Buffer, ext: string, name?: string } | undefined>}
    */
   async avatarImage(value) {
@@ -210,12 +247,9 @@ export class Team {
       if (!info?.isFile() || info.size > MAX_AVATAR_FILE_BYTES) throw new EngineError('invalid', t('err.badAvatar'));
       buffer = await readFile(path);
     } else {
-      const path = text.startsWith('~/') ? join(process.env.HOME ?? '', text.slice(2)) : text;
-      if (!isAbsolute(path)) throw new EngineError('invalid', t('err.badAvatar'));
-      const info = await stat(path).catch(() => undefined);
-      if (!info?.isFile()) throw new EngineError('invalid', t('err.avatarNotFound', { path: text }));
-      if (info.size > MAX_AVATAR_FILE_BYTES) throw new EngineError('invalid', t('err.avatarTooLarge', { max: '2MB' }));
-      buffer = await readFile(path);
+      // A file path is not an avatar source: the plugin only ever reads its own gallery, so a
+      // path can neither pull a file in from elsewhere on this computer nor name one out loud.
+      throw new EngineError('invalid', t('err.badAvatar'));
     }
     const ext = imageExt(buffer);
     if (!ext) throw new EngineError('invalid', t('err.badAvatar'));
@@ -328,7 +362,7 @@ export class Team {
       notice: String(input.notice ?? '').trim().slice(0, 500),
       adminId,
       memberIds,
-      replyMode: input.replyMode === 'all' ? 'all' : 'admin',
+      replyMode: input.replyMode === undefined ? 'admin' : replyModeOf(input.replyMode),
       pinned: false,
       createdAt: Date.now(),
       // F7 · the relay guardrails. The hop limit counts how many Bots may speak in one relay
@@ -368,7 +402,7 @@ export class Team {
     const draft = { ...group, memberIds: [...group.memberIds] };
     if (patch.name !== undefined) draft.name = this.validateName(patch.name, 'group', group.id);
     if (patch.notice !== undefined) draft.notice = String(patch.notice).trim().slice(0, 500);
-    if (patch.replyMode !== undefined) draft.replyMode = patch.replyMode === 'all' ? 'all' : 'admin';
+    if (patch.replyMode !== undefined) draft.replyMode = replyModeOf(patch.replyMode);
     if (patch.pinned !== undefined) draft.pinned = Boolean(patch.pinned);
     // The relay guardrails: absent leaves the group's own setting alone. 0 = no limit.
     if (patch.maxHops !== undefined) draft.maxHops = hopLimit({ maxHops: patch.maxHops });
@@ -416,13 +450,17 @@ export class Team {
    * @param {boolean} write
    */
   memoryScope(caller, scope, targetBot, write) {
-    if (scope === 'team') {
+    const requested = scope ?? 'self';
+    if (!MEMORY_SCOPES.includes(requested)) {
+      throw new EngineError('invalid', t('memory.err.badScope', { scope: requested, list: MEMORY_SCOPES.join(', ') }));
+    }
+    if (requested === 'team') {
       if (write && caller && !caller.isMain && !this.store.state.groups.some((g) => g.adminId === caller.id)) {
         throw new EngineError('forbidden', t('err.teamMemoryForbidden'));
       }
       return 'team';
     }
-    if (scope === 'bot' || (!caller && scope === 'self')) {
+    if (requested === 'bot' || (!caller && requested === 'self')) {
       if (!targetBot) throw new EngineError('invalid', t('err.targetBotRequired'));
       const target = this.resolveBot(targetBot);
       if (caller && caller.id !== target.id && !caller.isMain) {
@@ -430,6 +468,8 @@ export class Team {
       }
       return target.id;
     }
+    // 'self' for a Bot: its own memory. A request without a caller has no own memory to name.
+    if (!caller) throw new EngineError('invalid', t('memory.err.noCaller'));
     return caller.id;
   }
 
@@ -465,6 +505,9 @@ export class Team {
   }
 
   async recall(caller, input) {
+    if (input.scope != null && !MEMORY_SCOPES.includes(input.scope)) {
+      throw new EngineError('invalid', t('memory.err.badScope', { scope: input.scope, list: MEMORY_SCOPES.join(', ') }));
+    }
     let scopes;
     if (input.scope === 'team') scopes = ['team'];
     else if (input.scope === 'bot' || (!caller && input.targetBot)) {
@@ -528,7 +571,9 @@ export class Team {
     if (!prompt) throw new EngineError('invalid', t('err.schedulePrompt'));
     const list = this.store.state.schedules;
     const existing = input.id ? list.find((s) => s.id === input.id) : undefined;
-    const kind = ['interval', 'once'].includes(String(input.kind)) ? String(input.kind) : 'daily';
+    // No kind at all is the daily default. A kind that is not one of the three is refused:
+    // another kind would run at a time the user never asked for.
+    const kind = input.kind === undefined ? 'daily' : scheduleKindOf(input.kind);
     const time = String(input.time ?? '09:00');
     if (kind === 'daily' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
       throw new EngineError('invalid', t('err.scheduleTime'));
