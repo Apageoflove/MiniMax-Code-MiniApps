@@ -3,6 +3,7 @@ import { EngineError } from './engine.mjs';
 import { t } from './i18n.mjs';
 import { ENTRY_MAX, MemoryError, TOPIC_KEY_RE } from './memory.mjs';
 import { BOT_COLORS, BOT_SKINS, effortOptions, withEffort, newId } from './store.mjs';
+import { MEMORY_SCOPES } from './team.mjs';
 
 /** @typedef {import('./team.mjs').Team} Team */
 /** @typedef {import('./engine.mjs').Engine} Engine */
@@ -36,7 +37,7 @@ function toolDefs() {
   };
   const memoryScope = {
     type: 'string',
-    enum: ['self', 'team', 'bot'],
+    enum: MEMORY_SCOPES,
     description: t('mcp.p.scope'),
   };
 
@@ -271,6 +272,67 @@ function toolDefs() {
 
 /** Tool names, for lookups that must not depend on the language. */
 export const TOOL_NAMES = toolDefs().map((tool) => tool.name);
+
+/** Whether a value is of the JSON type a schema declares. */
+function isJsonType(type, value) {
+  if (type === 'string') return typeof value === 'string';
+  if (type === 'boolean') return typeof value === 'boolean';
+  if (type === 'integer') return Number.isInteger(value);
+  if (type === 'number') return typeof value === 'number' && Number.isFinite(value);
+  if (type === 'array') return Array.isArray(value);
+  if (type === 'object') return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  return true;
+}
+
+/**
+ * The enums a tool answers itself.
+ *
+ * For these the tool's answer says more than the schema can: the range, and what the value
+ * would have changed had it been accepted. So the value reaches the tool and the model reads
+ * the tool's message, not a generic one. Every other declared enum is checked here, before the
+ * tool runs, so a value that would otherwise be read as a different legal one never changes
+ * anything.
+ */
+const TOOL_OWNED_ENUMS = new Set([
+  'remember.scope', 'forget.scope', 'recall.scope',
+  'create_group.reply_mode', 'update_group.reply_mode',
+  'create_schedule.kind',
+]);
+
+/**
+ * What is wrong with the arguments of a tool call, judged by the inputSchema the tool itself
+ * declares: a value of the wrong JSON type, or a value outside a declared enum. The other rules
+ * of a tool (a topic a memory needs, a text that may not be longer than X) belong to the tool,
+ * which answers them with its own message; here only the shape of a value is checked, so a
+ * call that does not fit the schema never reaches the tool and never changes anything.
+ * @param {string} tool the tool being called, for the enums the tool answers itself
+ * @param {any} schema
+ * @param {any} args
+ * @returns {string[]} the problems, empty when the arguments fit the schema
+ */
+function schemaProblems(tool, schema, args) {
+  if (!schema || schema.type !== 'object') return [];
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) {
+    return [t('mcp.err.argObject')];
+  }
+  const problems = [];
+  for (const [name, value] of Object.entries(args)) {
+    // An argument the tool did not declare is left to the tool: dispatch_tasks, for one, has a
+    // message of its own for the options it does not support.
+    const property = schema.properties?.[name];
+    if (!property || value === null || value === undefined) continue;
+    if (property.type && !isJsonType(property.type, value)) {
+      problems.push(t('mcp.err.argType', { name, type: property.type }));
+      continue;
+    }
+    if (Array.isArray(property.enum) && !property.enum.includes(value)
+      && !TOOL_OWNED_ENUMS.has(`${tool}.${name}`)) {
+      problems.push(t('mcp.err.argEnum', { name, values: property.enum.join(', '), value: String(value) }));
+    }
+  }
+  return problems;
+}
+
 /**
  * @param {{ team: Team, engine: Engine }} deps
  */
@@ -294,6 +356,20 @@ export function createMcpHandler({ team, engine }) {
     const bot = store.getBot(id);
     if (!bot) throw new EngineError('invalid', t('mcp.err.badCaller', { id }));
     return bot;
+  }
+
+  /**
+   * The text a failed tool call shows the model. A failure the plugin knows (EngineError,
+   * MemoryError) carries its own message, written for the model. Anything else is a fault of
+   * the plugin: the model gets a generic line it cannot act on anyway, and the detail goes
+   * to the log, where the operator reads it.
+   */
+  function failureText(error, name) {
+    if (error instanceof EngineError || error instanceof MemoryError) return String(error.message);
+    engine.logger?.warn?.('minimax_bot.tool_failed', {
+      tool: name, code: error?.code ?? 'unknown', detail: String(error?.message ?? error),
+    });
+    return t('mcp.err.internal');
   }
 
   const LIVE = {
@@ -606,6 +682,12 @@ export function createMcpHandler({ team, engine }) {
           if (!TOOL_NAMES.includes(name)) {
             return { jsonrpc: '2.0', id, error: { code: -32602, message: `Unknown tool: ${name}` } };
           }
+          const tool = toolDefs().find((entry) => entry.name === name);
+          const problems = schemaProblems(name, tool?.inputSchema, args);
+          if (problems.length) {
+            result = { content: [{ type: 'text', text: t('mcp.err.badArgs', { tool: name, problems }) }], isError: true };
+            break;
+          }
           const callKey = session ? `${session}:${JSON.stringify(id)}` : newId('rpc');
           if (calls.has(callKey)) return { jsonrpc: '2.0', id, error: { code: -32600, message: 'Request already running' } };
           const controller = new AbortController();
@@ -614,8 +696,7 @@ export function createMcpHandler({ team, engine }) {
             const value = await callTool(name, args, controller.signal);
             result = { content: [{ type: 'text', text: JSON.stringify(value, null, name === 'recall' ? 0 : 2) }] };
           } catch (error) {
-            const text = error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error);
-            result = { content: [{ type: 'text', text }], isError: true };
+            result = { content: [{ type: 'text', text: failureText(error, name) }], isError: true };
           } finally { calls.delete(callKey); }
           break;
         }
