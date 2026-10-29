@@ -49,15 +49,72 @@ export const HANDOVER_TAIL = 400;
  *
  * The pattern matches any `minimax-bot-…` tag rather than a fixed list, so a mark that is
  * spelled differently — with spaces, with an attribute, in another case — is caught as well.
- * The attribute part is bounded, so a stray `<` cannot swallow the text behind it.
+ *
+ * The attribute is read as an attribute — the characters a tag attribute is made of — rather
+ * than as "anything up to the next `>`. A model that writes `<minimax-bot-context` into a
+ * sentence and closes the thought with a `>` a line later would otherwise lose that whole
+ * stretch of its own text, so only the name of the mark is taken when no tag-shaped attribute
+ * follows it.
  */
-const MARK_PATTERN = /<\s*\/?\s*minimax-bot-[a-z0-9-]+(?:\s[^>]{0,40})?>/gi;
+const MARK_PATTERN = new RegExp(
+  `<\\s*\\/?\\s*minimax-bot-[a-z0-9-]+(?:[ \\t]+[A-Za-z0-9_:.=/"'()\\-]*)?\\s*>`
+  + `|<\\s*\\/?\\s*minimax-bot-[a-z0-9-]+`,
+  'gi',
+);
+
+/**
+ * The block tags the Host itself writes into its prompts.
+ *
+ * A Bot that copies one of them into its answer hands the next Bot a text that reads like a
+ * notice the Host has just sent. The copy is model-written text, so the neutralising removes the
+ * tag from it the same way it removes a protocol mark — the tag goes, the words around it stay.
+ *
+ * The list holds the Host's own vocabulary, not the plugin's: the plugin's wire format
+ * (`minimax-bot-…`) and its delivery format (`<media src="…"/>`) are not in it and stay.
+ */
+export const HOST_TAGS = [
+  'system-reminder',
+  'agent-context',
+  'async-audit',
+  'media-output-reminder',
+  'background-task-finished',
+  'mcode-tools-master-reminder',
+  'task-completion-reminder',
+  'environment_details',
+];
+
+/**
+ * The Host's block tags, matched the way the protocol marks are: with an optional closing
+ * slash, with an optional attribute made of the characters an attribute is made of, and in any
+ * case. Without such an attribute only the name goes, so a sentence that mentions one of these
+ * words keeps the rest of itself.
+ */
+const HOST_TAG_PATTERN = new RegExp(
+  `<\\s*\\/?\\s*(?:${HOST_TAGS.join('|')})(?:[ \\t]+[A-Za-z0-9_:.=/"'()\\-]*)?\\s*>`
+  + `|<\\s*\\/?\\s*(?:${HOST_TAGS.join('|')})`,
+  'gi',
+);
+
+/**
+ * Everything the neutralising removes in one pass: the protocol marks and the Host's block tags.
+ */
+const STRIP_PATTERN = new RegExp(`${MARK_PATTERN.source}|${HOST_TAG_PATTERN.source}`, 'gi');
 
 /** A dash that looks like the hyphen of a protocol mark. */
-const LOOKALIKE_DASH = /[‐-―]/g;
+const LOOKALIKE_DASH = /[‐-―]/;
 
-/** A full-width ASCII character, which a Host that folds them would read as ASCII. */
-const FULLWIDTH_ASCII = /[！-～]/g;
+/** A full-width ASCII character, which reads as its ASCII form. */
+const FULLWIDTH_ASCII = /[！-～]/;
+
+/**
+ * A character that takes no space, so a mark split by one still reads as that mark.
+ *
+ * The format characters (a zero-width space or joiner, a soft hyphen, a directional mark, a
+ * byte-order mark) and the nonspacing marks (a combining accent, a variation selector) are the
+ * ones that take no room: a mark written with one of them in it still reads as that mark to the
+ * model, so it is read the same way here.
+ */
+const INVISIBLE = /[\p{Cf}\p{Mn}]/u;
 
 /** The largest hop limit a group can hold. The panel offers the same range. */
 export const HOP_LIMIT_MAX = 20;
@@ -95,34 +152,57 @@ export function handoverRequested(group) {
 }
 
 /**
- * A copy of the text with the characters that can stand in for a hyphen or an ASCII letter
- * folded to their ASCII form.
- *
- * Every fold replaces one character with one character, so a mark found in the folded text
- * points at the same characters in the original and the text itself stays untouched.
- * @param {string} text
+ * One character, with a dash that looks like a hyphen folded to a hyphen and a full-width ASCII
+ * character folded to the ASCII form it reads as.
+ * @param {string} char
  * @returns {string}
  */
-function foldMarks(text) {
-  return text
-    .replace(LOOKALIKE_DASH, '-')
-    .replace(FULLWIDTH_ASCII, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0));
+function foldChar(char) {
+  if (FULLWIDTH_ASCII.test(char)) return String.fromCharCode(char.charCodeAt(0) - 0xfee0);
+  return LOOKALIKE_DASH.test(char) ? '-' : char;
 }
 
 /**
- * Removes the protocol marks from a text, so a reply can never pretend to open or close a
- * block of its own.
+ * The text as the pattern reads it, and where each of its characters came from.
+ *
+ * Folding a character keeps its place and dropping one does not, so `origin[i]` is the position
+ * in the original text of the i-th character of the folded text. A mark found in the folded
+ * text therefore points at the same characters of the original, and the text itself is never
+ * rewritten.
+ * @param {string} text
+ * @returns {{ folded: string, origin: number[] }}
+ */
+function foldMarks(text) {
+  let folded = '';
+  const origin = [];
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (INVISIBLE.test(char)) continue;
+    folded += foldChar(char);
+    origin.push(i);
+  }
+  return { folded, origin };
+}
+
+/**
+ * Removes the protocol marks and the Host's block tags from a text, so a reply can never
+ * pretend to open or close a block of its own and can never pass a copied Host notice on as
+ * one.
+ *
+ * Only the tags go; the text around them is left as it was.
  * @param {string} text
  * @returns {string}
  */
 export function neutralizeMarks(text) {
   const value = String(text ?? '');
-  const folded = foldMarks(value);
+  const { folded, origin } = foldMarks(value);
   let out = '';
   let last = 0;
-  for (const match of folded.matchAll(MARK_PATTERN)) {
-    out += value.slice(last, match.index) + ' ';
-    last = match.index + match[0].length;
+  for (const match of folded.matchAll(STRIP_PATTERN)) {
+    const start = origin[match.index];
+    const end = origin[match.index + match[0].length - 1] + 1;
+    out += value.slice(last, start) + ' ';
+    last = end;
   }
   return out + value.slice(last);
 }

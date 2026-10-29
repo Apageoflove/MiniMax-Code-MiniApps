@@ -1775,7 +1775,9 @@ export class Engine {
             this.broadcastSummary(helper.chatId);
           }
         };
-        const text = t('helper.brief', { bot: bot?.name ?? 'Bot', role: bot?.role || '-', task: helper.task });
+        // The name, the role and the task travel into the helper's block, so a mark in any of
+        // them must not close it.
+        const text = t('helper.brief', { bot: clean(bot?.name) || 'Bot', role: clean(bot?.role) || '-', task: clean(helper.task) });
         turnStartedAt = Date.now();
         turnBotName = bot?.name ?? '';
         try {
@@ -1877,10 +1879,10 @@ export class Engine {
     // A stopped helper was stopped on purpose; there is nothing for the Bot to relay.
     if (helper.status === 'stopped') return;
     const text = t(`helper.trigger.${helper.status}`, {
-      title: helper.title,
+      title: clean(helper.title),
       id: helper.id,
-      report: helper.report || '-',
-      error: helper.error || '-',
+      report: clean(helper.report) || '-',
+      error: clean(helper.error) || '-',
     });
     const result = await this.runBotTurn({ bot, chatId, text, kind: group ? 'group' : 'helper' });
     if (result.messageId) {
