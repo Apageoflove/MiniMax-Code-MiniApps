@@ -2,11 +2,22 @@
 import { createHash } from "node:crypto";
 import { newId } from "./store.mjs";
 import { t } from "./i18n.mjs";
+import { neutralizeMarks } from "./relay-guard.mjs";
 
 const ACTIVE = new Set(["queued", "running"]);
 const UNSETTLED = new Set([...ACTIVE, "waiting_for_tasks", "waiting_for_user", "unknown", "paused"]);
 const MAX_RUNNING = 2; // Share Engine's Host slots; leave capacity for the caller and replies.
 const clip = (text, size = 8000) => String(text ?? "").slice(0, size);
+
+/**
+ * A report is source data, never instructions. The protocol marks are stripped from the whole
+ * report, so neither a child Bot that writes one into its result nor a name that carries one
+ * can open a context block of its own in the prompt of the Bot that reads the report. Only the
+ * marks go; the words around them stay.
+ * @param {any} text
+ * @returns {string}
+ */
+const reportBody = (text) => neutralizeMarks(String(text ?? ""));
 
 /** Durable delegations. Network observers never own the lifetime of an admitted task. */
 export class TaskDispatcher {
@@ -93,16 +104,16 @@ export class TaskDispatcher {
   }
 
   batchReport(batch) {
-    return t("task.results", { id: batch.id }) + "\n" + batch.tasks.map((task) =>
+    return reportBody(t("task.results", { id: batch.id }) + "\n" + batch.tasks.map((task) =>
       `${this.store.getBot(task.botId)?.name ?? task.title} [${task.status}] (${task.id})\n${clip(task.result || task.error || "-", 4000)}`,
-    ).join("\n\n");
+    ).join("\n\n"));
   }
 
   helperReport(helper) {
-    if (helper.status === "stopped") return `${helper.title} [stopped]`;
-    return t(`helper.trigger.${helper.status}`, {
+    if (helper.status === "stopped") return reportBody(`${helper.title} [stopped]`);
+    return reportBody(t(`helper.trigger.${helper.status}`, {
       title: helper.title, id: helper.id, report: helper.report || "-", error: helper.error || "-",
-    });
+    }));
   }
 
   async receiveDependency(parentId, id, text) {
@@ -455,8 +466,10 @@ export class TaskDispatcher {
           if (task.status === "unknown") { void this.save().catch(() => {}); continue; }
           const dependencies = this.pendingDependencies(task);
           if (dependencies.length && dependencies.every((dependency) => dependency.report !== undefined)) {
+            // The one place a dependency report reaches the Bot that verifies it. A report kept
+            // from an earlier run is stripped here as well, so no mark survives into the prompt.
             task.review = { botId: dependencies[0].botId, ids: dependencies.map((dependency) => dependency.id),
-              text: t("task.dependencyPrompt") + "\n\n" + dependencies.map((dependency) => dependency.report).join("\n\n") };
+              text: t("task.dependencyPrompt") + "\n\n" + dependencies.map((dependency) => reportBody(dependency.report)).join("\n\n") };
             task.status = "queued";
           }
         }
