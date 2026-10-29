@@ -22,6 +22,11 @@ import { markdownDocument, HTML_PREVIEW_CSP, MARKDOWN_PREVIEW_CSP } from './docu
 
 export const USER_NAME_MAX = 24;
 
+/** The usage panel's range: a whole number of days, from one day to three months. */
+const USAGE_DAYS_DEFAULT = 7;
+const USAGE_DAYS_MIN = 1;
+const USAGE_DAYS_MAX = 90;
+
 /**
  * The account's display name: the macOS full name (`id -F`), otherwise the login name. The Host
  * exposes no user identity to Mini Apps, so this is the best default; the user can override it.
@@ -178,9 +183,20 @@ export async function start(context) {
     return { scope, entries, chars: memoryBudget(entries).used, budget: memoryBudget(entries), contextBudget: { limit: MEMORY_CONTEXT_MAX, unit: 'characters' } };
   };
 
-  const usage = async (days) => {
-    const hourly = days <= 1;
-    const span = hourly ? 24 : Math.max(1, Math.min(90, days));
+  /** The usage panel asks for a number of days; anything but a whole 1..90 is refused. */
+  const usageDays = (raw) => {
+    if (raw === undefined || raw === null) return USAGE_DAYS_DEFAULT;
+    const days = Number(raw);
+    if (!Number.isInteger(days) || days < USAGE_DAYS_MIN || days > USAGE_DAYS_MAX) {
+      throw new EngineError('invalid', t('err.usageDays', { min: USAGE_DAYS_MIN, max: USAGE_DAYS_MAX }));
+    }
+    return days;
+  };
+
+  const usage = async (raw) => {
+    const days = usageDays(raw);
+    const hourly = days === 1;
+    const span = hourly ? 24 : days;
     const pad = (n) => String(n).padStart(2, '0');
     const start = new Date();
     if (hourly) {
@@ -658,7 +674,7 @@ export async function start(context) {
     }
 
     if (method === 'GET' && path === '/api/usage') {
-      return json(response, 200, await usage(Number(url.searchParams.get('days') ?? 7)));
+      return json(response, 200, await usage(url.searchParams.get('days')));
     }
 
     json(response, 404, { error: 'not_found', message: t('err.routeNotFound') });
