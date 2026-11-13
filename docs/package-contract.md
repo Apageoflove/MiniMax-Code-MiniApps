@@ -287,6 +287,13 @@ Every path inside the package, and every path written in a manifest, must be por
 - No symbolic links or hard links anywhere in the package, and the package directory itself is not
   a symbolic link.
 
+A path in `plugin.json` is checked with the same rules as a path in `miniapp.json`: `sub/../icon.png`
+and `../shared/icon.png` are errors for `icon`, `darkIcon`, `mcpServers`, and `skills`, even when the
+file they resolve to exists, and the path is checked before the file is looked for on disk.
+`npm run check` reports them as `MANIFEST_FIELD_INVALID` for the two icons and as
+`MANIFEST_REFERENCE_INVALID` for the other two. `apps`, `hooks`, `hostBindings`, and `agents` keep the
+Host's own leniency: the Host diagnoses a bad entry there without refusing the package.
+
 ## Package limits
 
 At most 1024 files, 16 MiB per file, and 64 MiB in total.
