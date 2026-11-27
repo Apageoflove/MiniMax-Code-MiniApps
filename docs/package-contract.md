@@ -295,11 +295,11 @@ the other six fields, and it checks the path before it looks for the file on dis
 
 ## Text encoding
 
-Every file the Host reads as text — the manifests, and the files they point at — must be UTF-8.
-The Host decodes them with a decoder that refuses anything else, so a manifest saved in another
-encoding is not repaired on the way in: the package does not install. `npm run check` decodes the
-same way and reports `MANIFEST_UNREADABLE`, `MCODE_UNREADABLE`, `MINIAPP_UNREADABLE`,
-`MANIFEST_APP_INVALID`, or `MANIFEST_REFERENCE_INVALID`, depending on which file it was reading.
+Every file the Host reads as text must be UTF-8. The Host decodes those with a decoder that
+refuses anything else, so a manifest saved in another encoding is not repaired on the way in: the
+package does not install. `npm run check` decodes the manifests, and the app files they point at,
+the same way — `MANIFEST_UNREADABLE`, `MCODE_UNREADABLE`, `MINIAPP_UNREADABLE`, or
+`MANIFEST_APP_INVALID`, depending on which file it was reading.
 
 ## Package limits
 
