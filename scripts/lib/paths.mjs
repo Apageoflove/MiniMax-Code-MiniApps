@@ -15,8 +15,7 @@ export function normalizePluginPath(value) {
 }
 
 export function portablePathIssue(relativePath) {
-  if (!relativePath) return 'path is empty';
-  if (!/^[\x00-\x7f]*$/u.test(relativePath)) return 'is not ASCII';
+  if (!relativePath) return 'path is empty';  if (!/^[\x00-\x7f]*$/u.test(relativePath)) return 'is not ASCII';
   if (relativePath.startsWith('/') || relativePath.startsWith('\\') || /^[A-Za-z]:[\\/]/u.test(relativePath)) {
     return 'is absolute';
   }
@@ -32,6 +31,21 @@ export function portablePathIssue(relativePath) {
     if (!PORTABLE_SEGMENT.test(segment) || segment.endsWith('.')) return `"${segment}" is not portable`;
     const [basename = ''] = segment.split('.', 1);
     if (WINDOWS_RESERVED.has(basename.toLowerCase())) return `"${segment}" is reserved on Windows`;
+  }
+  return undefined;
+}
+
+// The Host keeps a name for every prefix of every path in the package, folded to lower case,
+// and refuses two paths that land on the same name. A package that holds both `README.md` and
+// `Readme.md` is refused there, so the same folding belongs here.
+export function registerPortablePrefix(prefixes, relativePath) {
+  const segments = relativePath.split('/');
+  for (let index = 1; index <= segments.length; index += 1) {
+    const prefix = segments.slice(0, index).join('/');
+    const key = prefix.normalize('NFC').toLocaleLowerCase('en-US');
+    const prior = prefixes.get(key);
+    if (prior !== undefined && prior !== prefix) return [prior, prefix];
+    prefixes.set(key, prefix);
   }
   return undefined;
 }

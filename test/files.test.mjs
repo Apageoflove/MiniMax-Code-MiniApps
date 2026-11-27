@@ -53,6 +53,24 @@ test('files: a package root that is itself a symlink is rejected before walking'
   assert.deepEqual(codes(diagnostics), ['PACKAGE_ROOT_SYMLINK']);
 });
 
+test('files: two paths that differ only in letter case collide', async () => {
+  const diagnostics = await run(async (dir) => {
+    await writeFile(path.join(dir, 'Readme.md'), '');
+    await mkdir(path.join(dir, 'docs'), { recursive: true });
+    await writeFile(path.join(dir, 'docs', 'Preview.png'), '');
+    await writeFile(path.join(dir, 'docs', 'preview.png'), '');
+  });
+  assert.deepEqual(codes(diagnostics).sort(), ['PATH_CASE_COLLISION', 'PATH_CASE_COLLISION']);
+});
+
+test('files: a directory and a file that differ only in letter case collide', async () => {
+  const diagnostics = await run(async (dir) => {
+    await mkdir(path.join(dir, 'Docs'), { recursive: true });
+    await writeFile(path.join(dir, 'docs'), '');
+  });
+  assert.deepEqual(codes(diagnostics), ['PATH_CASE_COLLISION']);
+});
+
 test('files: a single file over 16 MiB is an error', async () => {
   const diagnostics = await run(async (dir) => {
     await writeFile(path.join(dir, 'big.bin'), Buffer.alloc(16 * 1024 * 1024 + 1));

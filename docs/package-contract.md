@@ -286,6 +286,10 @@ Every path inside the package, and every path written in a manifest, must be por
   `nul`, `com1`–`com9`, `lpt1`–`lpt9`).
 - No symbolic links or hard links anywhere in the package, and the package directory itself is not
   a symbolic link.
+- No two paths in the package may differ only in letter case. The Host keeps one name per path
+  prefix, folded to lower case, and refuses a package where two of them land on the same name:
+  `README.md` and `Readme.md` collide, and so do `docs/preview.png` and `docs/Preview.png`.
+  `npm run check` reports the same pair as `PATH_CASE_COLLISION`.
 
 A path in `plugin.json` (`icon`, `darkIcon`, `apps`, `mcpServers`, `hooks`, `skills`, `hostBindings`,
 `agents`) is checked with the same rules as a path in `miniapp.json`: `sub/../icon.png` and

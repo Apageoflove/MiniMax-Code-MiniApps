@@ -2,7 +2,7 @@ import { lstat, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { EXCLUDED_DIRECTORY, LIMITS } from '../contract.mjs';
-import { portablePathIssue } from '../paths.mjs';
+import { portablePathIssue, registerPortablePrefix } from '../paths.mjs';
 
 export async function checkFiles(report, { packageDir }) {
   const rootInfo = await lstat(packageDir);
@@ -11,7 +11,7 @@ export async function checkFiles(report, { packageDir }) {
     return;
   }
   const totals = { files: 0, bytes: 0 };
-  await walk(report, packageDir, '', totals);
+  await walk(report, packageDir, '', totals, new Map());
   if (totals.files > LIMITS.maxFiles) {
     report.error('PACKAGE_TOO_MANY_FILES', `${totals.files} files exceed the limit of ${LIMITS.maxFiles}`);
   }
@@ -20,7 +20,7 @@ export async function checkFiles(report, { packageDir }) {
   }
 }
 
-async function walk(report, absoluteDir, relativeDir, totals) {
+async function walk(report, absoluteDir, relativeDir, totals, prefixes) {
   const entries = await readdir(absoluteDir, { withFileTypes: true });
   entries.sort((a, b) => a.name.localeCompare(b.name, 'en'));
   for (const entry of entries) {
@@ -32,13 +32,17 @@ async function walk(report, absoluteDir, relativeDir, totals) {
     }
     const issue = portablePathIssue(relativePath);
     if (issue) report.error('PATH_NOT_PORTABLE', `path ${issue}`, relativePath);
+    const collision = registerPortablePrefix(prefixes, relativePath);
+    if (collision) {
+      report.error('PATH_CASE_COLLISION', `${collision[0]} and ${collision[1]} collide`, relativePath);
+    }
     const info = await lstat(absolutePath);
     if (info.isSymbolicLink()) {
       report.error('PACKAGE_SPECIAL_FILE', 'symbolic links are not allowed', relativePath);
       continue;
     }
     if (info.isDirectory()) {
-      await walk(report, absolutePath, relativePath, totals);
+      await walk(report, absolutePath, relativePath, totals, prefixes);
       continue;
     }
     if (!info.isFile()) {
