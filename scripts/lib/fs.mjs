@@ -2,14 +2,25 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 const BOM = '\uFEFF';
+// The Host reads the manifests with a decoder that refuses bytes that are not UTF-8, so a file
+// saved in another encoding stops the package there. `ignoreBOM` keeps the byte order mark in
+// the output, which is what the check below looks for; the default decoder would have taken it
+// out and the check would never fire.
+const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 export async function readJsonFile(absolutePath) {
-  let text;
+  let bytes;
   try {
-    text = await readFile(absolutePath, 'utf8');
+    bytes = await readFile(absolutePath);
   } catch (error) {
     if (error && error.code === 'ENOENT') return { ok: false, reason: 'missing', detail: 'file not found' };
     throw error;
+  }
+  let text;
+  try {
+    text = UTF8_DECODER.decode(bytes);
+  } catch {
+    return { ok: false, reason: 'encoding', detail: 'is not valid UTF-8' };
   }
   if (text.startsWith(BOM)) {
     return { ok: false, reason: 'bom', detail: 'starts with a UTF-8 BOM; save the file without a BOM' };
