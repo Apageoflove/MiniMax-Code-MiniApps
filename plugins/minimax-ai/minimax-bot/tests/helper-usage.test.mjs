@@ -262,3 +262,48 @@ test('a job stopped and then killed still leaves its turn in the ledger', async 
   assert.equal(background.status, 'aborted');
   assert.equal(background.turnId, store.state.helpers[0].id);
 });
+
+test('a background job whose closing write fails still stops reading as running', async (t) => {
+  const { store, engine } = await fixture(t);
+  const bot = { id: 'bot_a', name: 'Alice', role: 'Writer' };
+  store.state.bots = [bot];
+  const chatId = `bot:${bot.id}`;
+  const helperDone = deferred();
+  const seen = [];
+  const calls = [];
+  engine.agent = { async run(input, options) {
+    calls.push(input.text);
+    const ids = { sessionId: `session-${calls.length}`, turnId: `turn-${calls.length}` };
+    options.onEvent({ type: 'turn.started', ...ids });
+    if (input.text.startsWith(HELPER_PROMPT)) {
+      await helperDone.promise;
+      return { ...ids, status: 'finished', text: 'BACKGROUND_ANSWER' };
+    }
+    if (input.text.endsWith('START_BACKGROUND')) {
+      await engine.startHelper(bot, { task: 'Look this up' });
+      return { ...ids, status: 'finished', text: 'Started' };
+    }
+    return { ...ids, status: 'finished', text: 'Relay' };
+  } };
+  // The panel is told the job's status through these broadcasts, and nothing else updates it.
+  const realBroadcastHelpers = engine.broadcastHelpers.bind(engine);
+  engine.broadcastHelpers = (...args) => {
+    realBroadcastHelpers(...args);
+    seen.push(...(store.state.helpers ?? []).map((helper) => helper.status));
+  };
+
+  await engine.runBotTurn({ bot, chatId, text: 'START_BACKGROUND', kind: 'private' });
+  await until(() => store.state.helpers[0]?.status === 'running');
+  // The job finishes, and the write that follows it fails. The status is already final in
+  // memory; the page has to hear it, or the row reads "running" for good — the job never runs
+  // again, so nothing else would ever correct it.
+  store.save = async () => { throw Object.assign(new Error('no space left'), { code: 'ENOSPC' }); };
+  helperDone.resolve();
+  await until(() => store.state.helpers[0]?.status === 'done');
+  await until(() => seen.includes('done'));
+
+  assert.equal(store.state.helpers[0].status, 'done');
+  assert.ok(seen.includes('done'), `the page was never told the job finished: saw ${seen.join(',')}`);
+  // The failure is still reported rather than swallowed.
+  assert.ok(calls.length >= 2);
+});

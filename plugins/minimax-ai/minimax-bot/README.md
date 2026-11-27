@@ -145,6 +145,12 @@ The hand-over between two Bots of a group carried the tail of the previous reply
 - The stored name now replaces a run of dots, and a long name is cut on a whole character so an emoji is never left half-written.
 - The extension is kept apart from the rest of the name and survives that cleaning, because it decides how the file is served: `photo..png` was stored as `photo_png`, so it went out as `application/octet-stream` and the Bot received a plain file instead of an image. It is stored as `photo.png` now and stays a PNG end to end.
 
+## 0.7.41 A finished background job is not left reading as running
+
+- A background job publishes its status to the page through one broadcast, and that broadcast came after the write that closed the job out. A write that fails there — no space, a read-only disk — skipped the broadcast, so the page kept the last status it had been told, which is `running`. The job is already final in memory, and it never runs again, so nothing else would ever correct the row: the spinner stayed for good, and the only thing left to do was restart.
+- The status is now published before that write, and the write's failure is logged instead of ending the turn. The report that posts the job's outcome into its chat had the same shape and is fixed the same way, so a disk that fails once no longer costs the page the job's ending or the chat its note.
+- What is on disk is unchanged: the write still happens before the report, and the status it writes is the same one. Only the order of that one broadcast and the handling of a failed write changed.
+
 ## 0.7.38 The page tells the user when a chat is stuck and when a job was stopped
 
 - A turn whose outcome cannot be confirmed — the process stopped while it was running, or the Host took it and never said — leaves the request marked as unknown. Every later message of that chat waits for it, on purpose: a correction must not act on a state nobody can vouch for.

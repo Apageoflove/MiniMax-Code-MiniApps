@@ -1981,8 +1981,16 @@ export class Engine {
     }
     if (this.disposed) return;
     this.trimHelpers();
-    await this.store.save();
+    // Tell the page the job is over before the write, not after it. The status is already final
+    // in memory, and a write that fails is no reason to leave the row reading "running" for good:
+    // the job never runs again, so nothing else would ever correct it. The write itself still
+    // has to happen before the report goes out, and a failure still has to be reported.
     this.broadcastHelpers();
+    try {
+      await this.store.save();
+    } catch (error) {
+      this.logger.warn('minimax_bot.helper_final_save_failed', { helperId: helper.id, code: error?.code ?? 'unknown' });
+    }
     await this.deliverHelperReport(helper, run.stoppedBy);
   }
 
@@ -2005,8 +2013,14 @@ export class Engine {
     this.broadcast({ type: 'message.upsert', chatId, message: note });
     this.broadcastSummary(chatId);
     helper.resultMessageId = note.id;
-    await this.store.save();
+    // Same reason as the status broadcast above: the note is already in the chat and the status
+    // is already final, so a write that fails must not keep the page from hearing either.
     this.broadcastHelpers();
+    try {
+      await this.store.save();
+    } catch (error) {
+      this.logger.warn('minimax_bot.helper_report_save_failed', { helperId: helper.id, code: error?.code ?? 'unknown' });
+    }
     if (helper.parentTaskId) {
       await this.tasks.receiveDependency(helper.parentTaskId, helper.id, this.tasks.helperReport(helper));
       return;
